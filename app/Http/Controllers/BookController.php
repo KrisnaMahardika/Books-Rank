@@ -19,7 +19,7 @@ class BookController extends Controller
     public function index(Request $request)
     {
         $now = Carbon::now();
-        
+
         // Base query buku
         $books = Book::query()
             ->select('books.*')
@@ -50,27 +50,27 @@ class BookController extends Controller
 
         //  FILTERS
         $books
-            ->when($request->filled('categories'), function ($q) use ($request) {
-                $q->whereIn('category_id', $request->categories);
+            ->when($request->filled('categories'), function ($query) use ($request) {
+                $query->whereIn('category_id', $request->categories);
             })
-            ->when($request->filled('author'), function ($q) use ($request) {
-                $q->where('author_id', $request->author);
+            ->when($request->filled('author'), function ($query) use ($request) {
+                $query->where('author_id', $request->author);
             })
-            ->when($request->filled('store_location'), function ($q) use ($request) {
-                $q->where('store_location', $request->store_location);
+            ->when($request->filled('store_location'), function ($query) use ($request) {
+                $query->where('store_location', $request->store_location);
             })
-            ->when($request->filled('status'), function ($q) use ($request) {
-                $q->where('status', $request->status);
+            ->when($request->filled('status'), function ($query) use ($request) {
+                $query->where('status', $request->status);
             })
-            ->when($request->filled('year_from'), function ($q) use ($request) {
-                $q->where('publication_year', '>=', $request->year_from);
+            ->when($request->filled('year_from'), function ($query) use ($request) {
+                $query->where('publication_year', '>=', $request->year_from);
             })
-            ->when($request->filled('year_to'), function ($q) use ($request) {
-                $q->where('publication_year', '<=', $request->year_to);
+            ->when($request->filled('year_to'), function ($query) use ($request) {
+                $query->where('publication_year', '<=', $request->year_to);
             })
-            ->when($request->filled('search'), function ($q) use ($request) {
+            ->when($request->filled('search'), function ($query) use ($request) {
                 $search = $request->search;
-                $q->where(function ($sub) use ($search) {
+                $query->where(function ($sub) use ($search) {
                     $sub->where('title', 'like', "%$search%")
                         ->orWhere('isbn', 'like', "%$search%")
                         ->orWhere('publisher', 'like', "%$search%")
@@ -81,7 +81,7 @@ class BookController extends Controller
         // SORTING
         // Cache rata-rata global
         $chaceAvgRating = Cache::remember('global_avg_rating', now()->addMinutes(30), function () {
-            return round(Rating::query()->avg('rating'), 2);
+            return round(Rating::avg('rating'), 2);
         });
         $minRating = 5; // minimum threshold
         $sort = $request->get('sort', 'rating');

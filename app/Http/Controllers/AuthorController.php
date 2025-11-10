@@ -103,7 +103,7 @@ class AuthorController extends Controller
             },
 
             // total semua rating
-            'ratings as total_ratings_count',
+            // 'ratings as total_ratings_count',
 
             // popularitas terbaru (jumlah rating dalam 30 hari)
             'ratings as recent_popularity' => function ($query) use ($now) {

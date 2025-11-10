@@ -20,33 +20,16 @@ class BookController extends Controller
     {
         $now = Carbon::now();
 
-        // Base query buku
-        $books = Book::query()
-            ->select('books.*')
-            ->addSelect([
-                // total ratings
-                'ratings_count' => Rating::query()
-                    ->selectRaw('COUNT(*)')
-                    ->whereColumn('ratings.book_id', 'books.id'),
-
-                // avg rating per buku
-                'ratings_avg_rating' => Rating::query()
-                    ->selectRaw('AVG(rating)')
-                    ->whereColumn('ratings.book_id', 'books.id'),
-
-                // recent popularity (30 hari terakhir)
-                'recent_popularity' => Rating::query()
-                    ->selectRaw('COUNT(*)')
-                    ->whereColumn('ratings.book_id', 'books.id')
-                    ->where('ratings.created_at', '>=', $now->copy()->subDays(30)),
-
-                // recent avg rating (7 hari terakhir)
-                'recent_avg_rating' => Rating::query()
-                    ->selectRaw('AVG(rating)')
-                    ->whereColumn('ratings.book_id', 'books.id')
-                    ->where('ratings.created_at', '>=', $now->copy()->subDays(7)),
-            ])
-            ->with(['category:id,name', 'author:id,name']); // hanya ambil kolom penting
+        $books = Book::with(['category:id,name', 'author:id,name'])->withCount('ratings')->withAvg('ratings', 'rating')
+            ->withCount([
+                'ratings as recent_popularity' => function ($query) use ($now) {
+                    $query->where('created_at', '>=', $now->copy()->subDays(30));
+                }
+            ])->withAvg([
+                'ratings as recent_avg_rating' => function ($query) use ($now) {
+                    $query->where('created_at', '>=', $now->copy()->subDays(7));
+                }
+            ], 'rating');
 
         //  FILTERS
         $books
@@ -108,8 +91,11 @@ class BookController extends Controller
             $books->having('ratings_avg_rating', '<=', $request->rating_to);
         }
 
+        // dd(get_class($books));
+
         // EXECUTION
-        $books = $books->paginate(100)->withQueryString();
+        $books = $books->paginate(100)->appends(request()->query());
+        // $books = $books->paginate(100)->withQueryString();
 
         $categories = Category::orderBy('name')->get(['id', 'name']);
         $authors = Author::orderBy('name')->get(['id', 'name']);

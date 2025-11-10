@@ -18,13 +18,8 @@ class BookController extends Controller
      */
     public function index(Request $request)
     {
-        // Cache rata-rata global (biar tidak hitung tiap query)
-        $chace = Cache::remember('global_avg_rating', now()->addMinutes(30), function () {
-            return round(Rating::query()->avg('rating'), 2);
-        });
-
         $now = Carbon::now();
-
+        
         // Base query buku
         $books = Book::query()
             ->select('books.*')
@@ -84,6 +79,10 @@ class BookController extends Controller
             });
 
         // SORTING
+        // Cache rata-rata global
+        $chaceAvgRating = Cache::remember('global_avg_rating', now()->addMinutes(30), function () {
+            return round(Rating::query()->avg('rating'), 2);
+        });
         $minRating = 5; // minimum threshold
         $sort = $request->get('sort', 'rating');
 
@@ -97,7 +96,7 @@ class BookController extends Controller
             // Weighted rating (dihitung langsung di query)
             $books->orderByRaw("
                 ((ratings_count / (ratings_count + $minRating)) * ratings_avg_rating + 
-                 ($minRating / (ratings_count + $minRating)) * $chace) DESC
+                 ($minRating / (ratings_count + $minRating)) * $chaceAvgRating) DESC
             ");
         }
 

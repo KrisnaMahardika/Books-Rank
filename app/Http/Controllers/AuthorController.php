@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Author;
+use App\Models\Rating;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -14,37 +15,38 @@ class AuthorController extends Controller
      */
     public function index(Request $request)
     {
-        // Gunakan caching untuk menghindari query berat berulang
+        // Cache hasil 30 menit agar tidak query berulang
         $authors = Cache::remember('top_authors_stats', now()->addMinutes(30), function () {
-            // Subquery: total voters (rating > 5)
-            $popularitySub = DB::table('ratings')
+
+            // === total voters (rating > 5) ===
+            $popularitySub = Rating::query()
                 ->join('books', 'books.id', '=', 'ratings.book_id')
                 ->select('books.author_id', DB::raw('COUNT(ratings.id) as voters_count'))
                 ->where('ratings.rating', '>', 5)
                 ->groupBy('books.author_id');
 
-            // Subquery: average rating keseluruhan
-            $avgSub = DB::table('ratings')
+            // average rating keseluruhan
+            $avgSub = Rating::query()
                 ->join('books', 'books.id', '=', 'ratings.book_id')
                 ->select('books.author_id', DB::raw('AVG(ratings.rating) as avg_rating'))
                 ->groupBy('books.author_id');
-
-            // Subquery: average rating 30 hari terakhir
-            $recentSub = DB::table('ratings')
+            
+            // average rating 30 hari terakhir
+            $recentSub = Rating::query()
                 ->join('books', 'books.id', '=', 'ratings.book_id')
                 ->select('books.author_id', DB::raw('AVG(ratings.rating) as recent_avg'))
-                ->whereBetween('ratings.created_at', [now()->subDays(30), now()])
+                ->where('ratings.created_at', '>=', now()->subDays(30))
                 ->groupBy('books.author_id');
 
-            // Subquery: average rating 31–60 hari sebelumnya
-            $previousSub = DB::table('ratings')
+            // average rating 31–60 hari sebelumnya
+            $previousSub = Rating::query()
                 ->join('books', 'books.id', '=', 'ratings.book_id')
                 ->select('books.author_id', DB::raw('AVG(ratings.rating) as previous_avg'))
                 ->whereBetween('ratings.created_at', [now()->subDays(60), now()->subDays(31)])
                 ->groupBy('books.author_id');
 
-            // Gabungkan semua subquery ke tabel authors
-            $query = Author::query()
+            // === Gabungkan semua subquery ke tabel authors ===
+            $authors = Author::query()
                 ->leftJoinSub($popularitySub, 'pop', 'pop.author_id', '=', 'authors.id')
                 ->leftJoinSub($avgSub, 'avg', 'avg.author_id', '=', 'authors.id')
                 ->leftJoinSub($recentSub, 'recent', 'recent.author_id', '=', 'authors.id')
@@ -56,37 +58,38 @@ class AuthorController extends Controller
                     DB::raw('ROUND(COALESCE(recent.recent_avg, 0), 2) as recent_avg'),
                     DB::raw('ROUND(COALESCE(prev.previous_avg, 0), 2) as previous_avg'),
                     DB::raw('ROUND((COALESCE(recent.recent_avg, 0) - COALESCE(prev.previous_avg, 0)) * COALESCE(pop.voters_count, 1), 2) as trending_score')
-                );
+                )
+                ->with([
+                    // ambil hanya relasi buku yang dibutuhkan untuk best/worst
+                    'books' => function ($query) {
+                        $query->select('id', 'author_id', 'title')
+                            ->withAvg('ratings', 'rating');
+                    }
+                ])
+                ->get();
 
-            // Ambil hasil mentah dulu
-            $authors = $query->get();
+            // === Ambil best & worst book via collection===
+            $authors->transform(function ($author) {
+                $books = $author->books;
 
-            // Tambahkan best/worst book untuk tiap author (query ringan karena per-author)
-            foreach ($authors as $author) {
-                $bestBook = DB::table('books')
-                    ->join('ratings', 'ratings.book_id', '=', 'books.id')
-                    ->where('books.author_id', $author->id)
-                    ->select('books.title', DB::raw('AVG(ratings.rating) as avg'))
-                    ->groupBy('books.id', 'books.title')
-                    ->orderByDesc('avg')
-                    ->first();
+                if ($books->isNotEmpty()) {
+                    $bestBook = $books->sortByDesc('ratings_avg_rating')->first();
+                    $worstBook = $books->sortBy('ratings_avg_rating')->first();
 
-                $worstBook = DB::table('books')
-                    ->join('ratings', 'ratings.book_id', '=', 'books.id')
-                    ->where('books.author_id', $author->id)
-                    ->select('books.title', DB::raw('AVG(ratings.rating) as avg'))
-                    ->groupBy('books.id', 'books.title')
-                    ->orderBy('avg')
-                    ->first();
+                    $author->best_book = $bestBook?->title;
+                    $author->worst_book = $worstBook?->title;
+                } else {
+                    $author->best_book = null;
+                    $author->worst_book = null;
+                }
 
-                $author->best_book = $bestBook->title ?? null;
-                $author->worst_book = $worstBook->title ?? null;
-            }
+                return $author;
+            });
 
             return $authors;
         });
 
-        // Sorting tab (default = popularity)
+        // === Sort ===
         $sort = $request->get('sort', 'popularity');
         if ($sort === 'average') {
             $authors = $authors->sortByDesc('avg_rating');
@@ -96,7 +99,7 @@ class AuthorController extends Controller
             $authors = $authors->sortByDesc('voters_count');
         }
 
-        // Ambil top 20
+        // ambil 20 authors
         $authors = $authors->take(20);
 
         return view('authors.index', compact('authors', 'sort'));

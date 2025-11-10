@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 
 class BookController extends Controller
 {
@@ -20,11 +19,10 @@ class BookController extends Controller
     public function index(Request $request)
     {
         // Cache rata-rata global (biar tidak hitung tiap query)
-        $C = Cache::remember('global_avg_rating', now()->addMinutes(30), function () {
-            return round(DB::table('ratings')->avg('rating'), 2);
+        $chace = Cache::remember('global_avg_rating', now()->addMinutes(30), function () {
+            return round(Rating::query()->avg('rating'), 2);
         });
 
-        $m = 5; // minimum threshold
         $now = Carbon::now();
 
         // Base query buku
@@ -32,23 +30,23 @@ class BookController extends Controller
             ->select('books.*')
             ->addSelect([
                 // total ratings
-                'ratings_count' => DB::table('ratings')
+                'ratings_count' => Rating::query()
                     ->selectRaw('COUNT(*)')
                     ->whereColumn('ratings.book_id', 'books.id'),
 
                 // avg rating
-                'ratings_avg_rating' => DB::table('ratings')
+                'ratings_avg_rating' => Rating::query()
                     ->selectRaw('AVG(rating)')
                     ->whereColumn('ratings.book_id', 'books.id'),
 
                 // recent popularity (30 hari terakhir)
-                'recent_popularity' => DB::table('ratings')
+                'recent_popularity' => Rating::query()
                     ->selectRaw('COUNT(*)')
                     ->whereColumn('ratings.book_id', 'books.id')
                     ->where('ratings.created_at', '>=', $now->copy()->subDays(30)),
 
                 // recent avg rating (7 hari terakhir)
-                'recent_avg_rating' => DB::table('ratings')
+                'recent_avg_rating' => Rating::query()
                     ->selectRaw('AVG(rating)')
                     ->whereColumn('ratings.book_id', 'books.id')
                     ->where('ratings.created_at', '>=', $now->copy()->subDays(7)),
@@ -86,6 +84,7 @@ class BookController extends Controller
             });
 
         // SORTING
+        $minRating = 5; // minimum threshold
         $sort = $request->get('sort', 'rating');
 
         if ($sort === 'alphabetical') {
@@ -97,8 +96,8 @@ class BookController extends Controller
         } else {
             // Weighted rating (dihitung langsung di query)
             $books->orderByRaw("
-                ((ratings_count / (ratings_count + $m)) * ratings_avg_rating + 
-                 ($m / (ratings_count + $m)) * $C) DESC
+                ((ratings_count / (ratings_count + $minRating)) * ratings_avg_rating + 
+                 ($minRating / (ratings_count + $minRating)) * $chace) DESC
             ");
         }
 

@@ -29,7 +29,7 @@ class BookController extends Controller
                     ->selectRaw('COUNT(*)')
                     ->whereColumn('ratings.book_id', 'books.id'),
 
-                // avg rating
+                // avg rating per buku
                 'ratings_avg_rating' => Rating::query()
                     ->selectRaw('AVG(rating)')
                     ->whereColumn('ratings.book_id', 'books.id'),
@@ -79,7 +79,7 @@ class BookController extends Controller
             });
 
         // SORTING
-        // Cache rata-rata global
+        // Cache rata-rata rating global 
         $chaceAvgRating = Cache::remember('global_avg_rating', now()->addMinutes(30), function () {
             return round(Rating::avg('rating'), 2);
         });
